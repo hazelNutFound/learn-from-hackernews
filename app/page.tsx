@@ -1,41 +1,50 @@
+import Link from "next/link";
 import ArticleCard from "@/components/ArticleCard";
-import { fetchCandidates, type Story } from "@/lib/hackernews";
-import { formatWeek, weekOf } from "@/lib/week";
+import { prisma } from "@/lib/db";
+import { formatWeek } from "@/lib/week";
 
-export const revalidate = 3600;
-
-const ARTICLE_COUNT = 8;
+export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
-  const week = weekOf();
-  let stories: Story[] = [];
-  let loadFailed = false;
+  const latest = await prisma.article.findFirst({ orderBy: { weekOf: "desc" }, select: { weekOf: true } });
 
-  try {
-    const candidates = await fetchCandidates(week);
-    stories = candidates.slice(0, ARTICLE_COUNT);
-  } catch (error) {
-    console.error("Could not load Hacker News stories:", error);
-    loadFailed = true;
+  if (!latest) {
+    return <p className="text-neutral-500">No articles yet. Check back after the weekly update.</p>;
   }
+
+  const articles = await prisma.article.findMany({
+    where: { weekOf: latest.weekOf },
+    orderBy: { rank: "asc" },
+  });
 
   return (
     <div>
-      <h1 className="text-2xl font-bold">Week of {formatWeek(week)}</h1>
-      <p className="mt-1 text-sm text-gray-600">
-        Top {ARTICLE_COUNT} stories by points posted on Hacker News during this week (UTC).
+      <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Learn from Hacker News</h1>
+      <p className="mt-3 max-w-2xl leading-relaxed text-neutral-500">
+        An AI-powered weekly developer learning dashboard. Every week we pick the most interesting tech stories from
+        Hacker News and turn them into study notes: why each story matters, what you need to learn to understand it, and
+        a small project you can build yourself.
       </p>
 
-      {loadFailed && (
-        <p className="mt-6 rounded-lg bg-red-50 p-4 text-red-700">Could not load stories from Hacker News. Please try again later.</p>
-      )}
+      <p className="mt-12 text-xs font-medium uppercase tracking-widest text-neutral-500">This week</p>
+      <h2 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">{formatWeek(latest.weekOf)}</h2>
+      <p className="mt-3 max-w-xl leading-relaxed text-neutral-500">
+        Picked from the 200 highest-scoring Hacker News stories posted this week (UTC), with AI-generated study notes.
+      </p>
 
-      {!loadFailed && stories.length === 0 && <p className="mt-6 text-gray-600">No stories found for this week.</p>}
-
-      <div className="mt-6 space-y-4">
-        {stories.map((story, index) => (
-          <ArticleCard key={story.hnId} story={story} rank={index + 1} />
+      <div className="mt-10 space-y-6">
+        {articles.map((article) => (
+          <ArticleCard key={article.id} article={article} />
         ))}
+      </div>
+
+      <div className="mt-12">
+        <Link
+          href="/archive"
+          className="inline-block rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-neutral-700"
+        >
+          Browse past weeks
+        </Link>
       </div>
     </div>
   );

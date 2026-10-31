@@ -1,0 +1,64 @@
+name: Weekly pipeline
+
+on:
+  schedule:
+    - cron: "0 13 * * 1"
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Max articles to analyze in this run (1-10)"
+        required: false
+        default: "8"
+        type: string
+      force:
+        description: "Re-analyze articles already saved for this week"
+        required: false
+        default: false
+        type: boolean
+
+# Only one run of this workflow at a time. This is not a full queue
+# (a newer waiting run replaces an older waiting one); the database's
+# unique (hnId, weekOf) rule is what prevents duplicate articles.
+concurrency:
+  group: weekly-pipeline
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      DIRECT_URL: ${{ secrets.DIRECT_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Apply database migrations
+        run: npx prisma migrate deploy
+
+      - name: Run pipeline
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          LIMIT: ${{ inputs.limit || '8' }}
+          FORCE: ${{ inputs.force || false }}
+        run: |
+          if [ "$FORCE" = "true" ]; then
+            npm run pipeline -- --limit "$LIMIT" --force
+          else
+            npm run pipeline -- --limit "$LIMIT"
+          fi

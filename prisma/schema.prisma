@@ -1,0 +1,40 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Article {
+  id     String @id @default(cuid())
+  hnId   Int
+  weekOf String
+  rank   Int    @default(0)
+
+  title        String
+  url          String?
+  author       String
+  points       Int
+  commentCount Int
+  postedAt     DateTime
+
+  summary           String
+  tags              String[]
+  whyItMatters      String
+  learnTopics       String[]
+  difficulty        String
+  learningPath      String
+  buildTitle        String
+  buildDescription  String
+  buildFeatures     String[]
+  buildStack        String[]
+  buildTimeEstimate String
+
+  createdAt DateTime @default(now())
+
+  @@unique([hnId, weekOf])
+  @@index([weekOf])
+}

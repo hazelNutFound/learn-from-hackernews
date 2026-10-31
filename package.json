@@ -4,13 +4,19 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "prisma generate && next build",
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "hn:preview": "tsx scripts/preview-hn.ts"
+    "hn:preview": "tsx scripts/preview-hn.ts",
+    "db:migrate": "prisma migrate dev",
+    "db:studio": "prisma studio",
+    "seed:demo": "tsx --env-file-if-exists=.env scripts/seed-demo.ts",
+    "pipeline": "tsx --env-file-if-exists=.env scripts/run-pipeline.ts"
   },
   "dependencies": {
+    "@google/genai": "^2.32.0",
+    "@prisma/client": "^6.19.3",
     "next": "15.5.28",
     "react": "19.1.0",
     "react-dom": "19.1.0"
@@ -23,6 +29,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "15.5.28",
+    "prisma": "^6.19.3",
     "tailwindcss": "^4",
     "tsx": "^4.23.15",
     "typescript": "^5"
