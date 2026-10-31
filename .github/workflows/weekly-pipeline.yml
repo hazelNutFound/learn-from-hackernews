@@ -28,11 +28,9 @@ permissions:
 
 jobs:
   pipeline:
+    if: ${{ vars.PIPELINE_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    env:
-      DATABASE_URL: ${{ secrets.DATABASE_URL }}
-      DIRECT_URL: ${{ secrets.DIRECT_URL }}
     steps:
       - uses: actions/checkout@v4
 
@@ -47,11 +45,19 @@ jobs:
       - name: Generate Prisma client
         run: npx prisma generate
 
+      - name: Run unit tests
+        run: npm test
+
       - name: Apply database migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
         run: npx prisma migrate deploy
 
       - name: Run pipeline
         env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
           LIMIT: ${{ inputs.limit || '8' }}

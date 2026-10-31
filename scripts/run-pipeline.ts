@@ -1,50 +1,30 @@
-import { Prisma, type Article } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { analyzeArticle, getErrorStatus, getModel, isFatalError, requireApiKey, selectArticles, tokenUsage, type Analysis } from "../lib/ai";
 import { prisma } from "../lib/db";
 import { fetchArticleText, fetchCandidates, fetchTopComments, type Story } from "../lib/hackernews";
+import {
+  ARTICLE_COUNT,
+  articlesToReanalyze,
+  countNewToSelect,
+  excludeSaved,
+  firstNewRank,
+  parsePipelineArgs,
+  storyFromArticle,
+} from "../lib/pipeline";
 import { formatWeek, weekOf } from "../lib/week";
-
-const ARTICLE_COUNT = 8;
 
 type Job = {
   story: Story;
   isNew: boolean;
 };
 
-function readOptions() {
-  const args = process.argv.slice(2);
-  let limit = ARTICLE_COUNT;
-
-  const limitIndex = args.indexOf("--limit");
-  if (limitIndex !== -1) {
-    limit = Number(args[limitIndex + 1]);
-    if (!Number.isInteger(limit) || limit < 1 || limit > 10) {
-      throw new Error("--limit must be a whole number from 1 to 10, for example: npm run pipeline -- --limit 1");
-    }
-  }
-
-  return { limit, force: args.includes("--force") };
-}
-
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function storyFromArticle(article: Article, candidates: Story[]): Story {
-  const fresh = candidates.find((story) => story.hnId === article.hnId);
-  if (fresh) {
-    return fresh;
-  }
-  return {
-    hnId: article.hnId,
-    title: article.title,
-    url: article.url,
-    author: article.author,
-    points: article.points,
-    commentCount: article.commentCount,
-    postedAt: article.postedAt,
-    text: null,
-  };
+function lastLine(text: string): string {
+  const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
+  return lines[lines.length - 1] ?? "Unknown error";
 }
 
 function articleData(story: Story, analysis: Analysis) {
@@ -96,42 +76,44 @@ function printTokenUsage() {
 }
 
 async function main() {
-  const { limit, force } = readOptions();
+  const options = parsePipelineArgs(process.argv.slice(2));
   requireApiKey();
 
   const week = weekOf();
-  console.log(`Week of ${week} (${formatWeek(week)}, UTC) · model: ${getModel()}${force ? " · --force" : ""}\n`);
+  console.log(`Week of ${week} (${formatWeek(week)}, UTC) · model: ${getModel()}${options.force ? " · --force" : ""}\n`);
 
   const existing = await prisma.article.findMany({ where: { weekOf: week }, orderBy: { rank: "asc" } });
-  const missing = Math.max(ARTICLE_COUNT - existing.length, 0);
+  const reanalyze = articlesToReanalyze(existing, options);
+  const newCount = countNewToSelect(existing.length, reanalyze.length, options.limit);
   console.log(`Already saved for this week: ${existing.length}/${ARTICLE_COUNT}`);
 
-  if (missing === 0 && !force) {
+  if (reanalyze.length === 0 && newCount === 0) {
     console.log("This week is already complete. Nothing to do (use --force to analyze the saved articles again).");
     return;
   }
 
-  console.log("1/4 Fetching candidates...");
-  const candidates = await fetchCandidates(week);
-  const savedIds = new Set(existing.map((article) => article.hnId));
-  const available = candidates.filter((story) => !savedIds.has(story.hnId));
-  console.log(`  Found ${candidates.length} candidates, ${available.length} not saved yet.`);
-
   let newStories: Story[] = [];
-  if (missing > 0) {
-    console.log(`2/4 Selecting ${missing} new articles with Gemini...`);
-    newStories = await selectArticles(available, missing);
+  if (newCount > 0) {
+    console.log("1/4 Fetching candidates...");
+    const candidates = await fetchCandidates(week);
+    const available = excludeSaved(candidates, existing);
+    console.log(`  Found ${candidates.length} candidates, ${available.length} not saved yet.`);
+
+    console.log(`2/4 Selecting ${newCount} new articles with Gemini...`);
+    newStories = (await selectArticles(available, newCount)).slice(0, newCount);
     console.log(`  Selected ${newStories.length}.`);
   } else {
-    console.log("2/4 This week already has 8 articles, no new ones needed.");
+    console.log("1/4 No new articles needed, skipping Hacker News candidates.");
+    console.log("2/4 No new articles needed, skipping Gemini selection.");
   }
 
-  const reanalyzeJobs: Job[] = force ? existing.map((article) => ({ story: storyFromArticle(article, candidates), isNew: false })) : [];
-  const newJobs: Job[] = newStories.map((story) => ({ story, isNew: true }));
-  const jobs = [...reanalyzeJobs, ...newJobs].slice(0, limit);
+  const jobs: Job[] = [
+    ...reanalyze.map((article) => ({ story: storyFromArticle(article), isNew: false })),
+    ...newStories.map((story) => ({ story, isNew: true })),
+  ];
 
   console.log(`3/4 Analyzing ${jobs.length} articles...`);
-  let nextRank = Math.max(0, ...existing.map((article) => article.rank)) + 1;
+  let nextRank = firstNewRank(existing);
   let saved = 0;
   let alreadySaved = 0;
   let failed = 0;
@@ -186,7 +168,8 @@ main()
     } else {
       console.error("\nPipeline stopped.");
     }
-    console.error(`::error::${errorMessage(error)}`);
+    console.error(errorMessage(error));
+    console.error(`::error::${lastLine(errorMessage(error))}`);
     if (tokenUsage.calls > 0) {
       printTokenUsage();
     }
