@@ -32,7 +32,7 @@ export default async function HomePage() {
         Picked from the 200 highest-scoring Hacker News stories posted this week (UTC), with AI-generated study notes.
       </p>
 
-      <div className="mt-10 space-y-6">
+      <div className="mt-10 space-y-10">
         {articles.map((article) => (
           <ArticleCard key={article.id} article={article} />
         ))}

@@ -35,7 +35,7 @@ export default async function WeekPage({ params }: WeekPageProps) {
         {articles.length} {articles.length === 1 ? "article" : "articles"}
       </p>
 
-      <div className="mt-10 space-y-6">
+      <div className="mt-10 space-y-10">
         {articles.map((article) => (
           <ArticleCard key={article.id} article={article} />
         ))}
